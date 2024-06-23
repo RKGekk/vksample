@@ -445,6 +445,14 @@ private:
     }
     
     void createPipeline() {
+        m_frag_shader_modeule = CreateShaderModule("shaders/frag.spv");
+        VkPipelineShaderStageCreateInfo frag_shader_info{};
+        frag_shader_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        frag_shader_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        frag_shader_info.module = m_frag_shader_modeule;
+        frag_shader_info.pName = "main";
+        frag_shader_info.pSpecializationInfo = nullptr; 
+    
         m_vert_shader_modeule = CreateShaderModule("shaders/vert.spv");
         VkPipelineShaderStageCreateInfo vertex_shader_info{};
         vertex_shader_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -453,15 +461,11 @@ private:
         vertex_shader_info.pName = "main";
         vertex_shader_info.pSpecializationInfo = nullptr;
         
-        m_frag_shader_modeule = CreateShaderModule("shaders/frag.spv");
-        VkPipelineShaderStageCreateInfo frag_shader_info{};
-        frag_shader_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        frag_shader_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        frag_shader_info.module = m_vert_shader_modeule;
-        frag_shader_info.pName = "main";
-        frag_shader_info.pSpecializationInfo = nullptr; 
         
-        std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages = {vertex_shader_info, frag_shader_info};
+        
+        //std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages = {vertex_shader_info, frag_shader_info};
+        //VkPipelineShaderStageCreateInfo shader_stages[] = {vertex_shader_info, frag_shader_info};
+        VkPipelineShaderStageCreateInfo shader_stages[] = {frag_shader_info, vertex_shader_info};
         
         std::vector<VkDynamicState> dynamic_states = {
             VK_DYNAMIC_STATE_VIEWPORT,
@@ -515,6 +519,7 @@ private:
         rasterizer_info.depthBiasConstantFactor = 0.0f;
         rasterizer_info.depthBiasClamp = 0.0f;
         rasterizer_info.depthBiasSlopeFactor = 0.0f;
+        rasterizer_info.lineWidth = 1.0f;
         
         VkPipelineMultisampleStateCreateInfo multisample_info{};
         multisample_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -591,8 +596,8 @@ private:
         
         VkGraphicsPipelineCreateInfo pipeline_info{};
         pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        pipeline_info.stageCount = 2u;
-        pipeline_info.pStages = shader_stages.data();
+        pipeline_info.stageCount = 2;
+        pipeline_info.pStages = shader_stages;
         pipeline_info.pVertexInputState = &vertex_input_info;
         pipeline_info.pInputAssemblyState = &input_assembly_info;
         pipeline_info.pViewportState = &viewport_state_info;
@@ -628,10 +633,10 @@ private:
     }
     
     VkShaderModule CreateShaderModule(const std::string& path) {
-        std::string dd = std::filesystem::current_path().string();
-        auto vert_shader_buff = readFile("shaders/vert.spv");
-        VkShaderModule vert_shader_modeule = CreateShaderModule(vert_shader_buff);
-        return vert_shader_modeule;
+        //std::string dd = std::filesystem::current_path().string();
+        auto shader_buff = readFile(path);
+        VkShaderModule shader_modeule = CreateShaderModule(shader_buff);
+        return shader_modeule;
     }
     
     uint64_t getDeviceMaxMemoryLimit(VkPhysicalDevice device) {
