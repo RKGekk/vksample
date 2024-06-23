@@ -10,10 +10,12 @@
 #include <stdexcept>
 #include <cstdlib>
 #include <cstdint>
+#include <cmath>
 #include <unordered_set>
 #include <map>
 #include <algorithm>
 #include <limits>
+#include <filesystem>
 #include <fstream>
 
 const uint32_t WIDTH = 800;
@@ -130,10 +132,16 @@ struct QueueFamilyIndices {
     }
 };
 
-struct SwapChainSupportDetails {
+struct SwapchainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities;
     std::vector<VkSurfaceFormatKHR> formats;
     std::vector<VkPresentModeKHR> present_modes;
+};
+
+struct SwapchainParams {
+    VkSurfaceFormatKHR surface_format;
+    VkPresentModeKHR present_mode;
+    VkExtent2D extent;
 };
 
 class HelloTriangleApplication {
@@ -160,9 +168,8 @@ private:
     VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
     std::vector<VkImage> m_swapchain_images;
     std::vector<VkImageView> m_swapchain_views;
-    VkSurfaceFormatKHR m_swapchain_surface_format;
-    VkPresentModeKHR m_swapchain_present_mode;
-    VkExtent2D m_swapchain_extent;
+    SwapchainParams m_swapchain_params;
+    SwapchainSupportDetails m_swapchain_support_details;
     VkPipelineLayout m_pipeline_layout = VK_NULL_HANDLE;
     VkRenderPass m_render_pass = VK_NULL_HANDLE;
     VkShaderModule m_vert_shader_modeule = VK_NULL_HANDLE;
@@ -257,7 +264,7 @@ private:
         messanger_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
         messanger_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         messanger_info.pfnUserCallback = debugCallback;
-        messanger_info.pUserData = nullptr;
+        messanger_info.pUserData = (void*)this;
     }
     
      VkDebugUtilsMessengerEXT setupDebugMessanger() {
@@ -444,6 +451,7 @@ private:
         vertex_shader_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
         vertex_shader_info.module = m_vert_shader_modeule;
         vertex_shader_info.pName = "main";
+        vertex_shader_info.pSpecializationInfo = nullptr;
         
         m_frag_shader_modeule = CreateShaderModule("shaders/frag.spv");
         VkPipelineShaderStageCreateInfo frag_shader_info{};
@@ -451,6 +459,7 @@ private:
         frag_shader_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
         frag_shader_info.module = m_vert_shader_modeule;
         frag_shader_info.pName = "main";
+        frag_shader_info.pSpecializationInfo = nullptr; 
         
         std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages = {vertex_shader_info, frag_shader_info};
         
@@ -478,13 +487,13 @@ private:
         
         VkRect2D scissor{};
         scissor.offset = {0, 0};
-        scissor.extent = m_swapchain_extent;
+        scissor.extent = m_swapchain_params.extent;
         
         VkViewport viewport{};
         viewport.x = 0.0f;
         viewport.y = 0.0f;
-        viewport.width = (float)m_swapchain_extent.width;
-        viewport.height = (float)m_swapchain_extent.height;
+        viewport.width = (float)m_swapchain_params.extent.width;
+        viewport.height = (float)m_swapchain_params.extent.height;
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
         
@@ -550,7 +559,7 @@ private:
         }
         
         VkAttachmentDescription color_attachment{};
-        color_attachment.format = m_swapchain_surface_format.format;
+        color_attachment.format = m_swapchain_params.surface_format.format;
         color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
         color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -606,21 +615,34 @@ private:
     }
     
     void createSwapchain() {
-        m_swapchain = createSwapchain(m_physical_device, m_device);
+        m_swapchain_support_details = querySwapChainSupport(m_physical_device);
+        
+        m_swapchain_params.surface_format = chooseSwapSurfaceFormat(m_swapchain_support_details.formats);
+        m_swapchain_params.present_mode = chooseSwapPresentMode(m_swapchain_support_details.present_modes);
+        m_swapchain_params.extent = chooseSwapExtent(m_swapchain_support_details.capabilities);
+        
+        m_swapchain = createSwapchain(m_physical_device, m_device, m_swapchain_params);
         m_swapchain_images = getSwapchainImages(m_device, m_swapchain);
         
-        SwapChainSupportDetails swapchain_details = querySwapChainSupport(m_physical_device);
-        m_swapchain_surface_format = chooseSwapSurfaceFormat(swapchain_details.formats);
-        m_swapchain_present_mode = chooseSwapPresentMode(swapchain_details.present_modes);
-        m_swapchain_extent = chooseSwapExtent(swapchain_details.capabilities);
-        
-        m_swapchain_views = getImageViews(m_device, m_swapchain_images, m_swapchain_surface_format);
+        m_swapchain_views = getImageViews(m_device, m_swapchain_images, m_swapchain_params.surface_format);
     }
     
     VkShaderModule CreateShaderModule(const std::string& path) {
+        std::string dd = std::filesystem::current_path().string();
         auto vert_shader_buff = readFile("shaders/vert.spv");
         VkShaderModule vert_shader_modeule = CreateShaderModule(vert_shader_buff);
         return vert_shader_modeule;
+    }
+    
+    uint64_t getDeviceMaxMemoryLimit(VkPhysicalDevice device) {
+        uint64_t max_memory_limit = 0;
+        VkPhysicalDeviceMemoryProperties phys_device_mem_prop;
+        vkGetPhysicalDeviceMemoryProperties(device, &phys_device_mem_prop);
+        for (uint32_t i = 0u; i < phys_device_mem_prop.memoryHeapCount; ++i) {
+            VkMemoryHeap mem_heap_prop = phys_device_mem_prop.memoryHeaps[i];
+            max_memory_limit += mem_heap_prop.size;
+        }
+        return max_memory_limit;
     }
     
     int rateDeviceSuitability(VkPhysicalDevice device) {
@@ -636,8 +658,12 @@ private:
             score += 1000;
         }
         score += device_props.limits.maxImageDimension2D;
+        
+        uint64_t max_memory = getDeviceMaxMemoryLimit(device);
+        score += (int)std::log2(max_memory);
+        
         if(!device_features.geometryShader) {
-            return 0;
+            score += 1000;
         }
         if(isDeviceSuitable(device, m_surface)){
             return 0;
@@ -723,24 +749,21 @@ private:
         }
     }
     
-    VkSwapchainKHR createSwapchain(VkPhysicalDevice physical_device, VkDevice logical_device) {
-        SwapChainSupportDetails swap_chain_details = querySwapChainSupport(physical_device);
-        VkSurfaceFormatKHR surface_format = chooseSwapSurfaceFormat(swap_chain_details.formats);
-        VkPresentModeKHR present_mode = chooseSwapPresentMode(swap_chain_details.present_modes);
-        VkExtent2D extent = chooseSwapExtent(swap_chain_details.capabilities);
-        
-        uint32_t image_count = swap_chain_details.capabilities.minImageCount + 1u;
-        if(swap_chain_details.capabilities.maxImageCount > 0 && image_count > swap_chain_details.capabilities.maxImageCount) {
-            image_count = swap_chain_details.capabilities.maxImageCount;
+    VkSwapchainKHR createSwapchain(VkPhysicalDevice physical_device, VkDevice logical_device, SwapchainParams swapchain_params) {
+        uint32_t image_count = m_swapchain_support_details.capabilities.minImageCount + 1u;
+        if(   m_swapchain_support_details.capabilities.maxImageCount > 0
+           && image_count > m_swapchain_support_details.capabilities.maxImageCount
+        ){
+            image_count = m_swapchain_support_details.capabilities.maxImageCount;
         }
         
         VkSwapchainCreateInfoKHR swapchain_create_info{};
         swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
         swapchain_create_info.surface = m_surface;
         swapchain_create_info.minImageCount = image_count;
-        swapchain_create_info.imageFormat = surface_format.format;
-        swapchain_create_info.imageColorSpace = surface_format.colorSpace;
-        swapchain_create_info.imageExtent = extent;
+        swapchain_create_info.imageFormat = m_swapchain_params.surface_format.format;
+        swapchain_create_info.imageColorSpace = m_swapchain_params.surface_format.colorSpace;
+        swapchain_create_info.imageExtent = m_swapchain_params.extent;
         swapchain_create_info.imageArrayLayers = 1u;
         swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         
@@ -757,9 +780,9 @@ private:
             swapchain_create_info.pQueueFamilyIndices = nullptr;
         }
         
-        swapchain_create_info.preTransform = swap_chain_details.capabilities.currentTransform;
+        swapchain_create_info.preTransform = m_swapchain_support_details.capabilities.currentTransform;
         swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        swapchain_create_info.presentMode = present_mode;
+        swapchain_create_info.presentMode = m_swapchain_params.present_mode;
         swapchain_create_info.clipped = VK_TRUE;
         swapchain_create_info.oldSwapchain = VK_NULL_HANDLE;
         
@@ -784,7 +807,7 @@ private:
         
         bool swap_chain_adequate = false;
         if(all_device_ext_supported) {
-            SwapChainSupportDetails swap_chain_details = querySwapChainSupport(device);
+            SwapchainSupportDetails swap_chain_details = querySwapChainSupport(device);
             swap_chain_adequate = !swap_chain_details.formats.empty() && !swap_chain_details.present_modes.empty();
         }
         
@@ -850,8 +873,8 @@ private:
         return surface;
     }
     
-    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
-        SwapChainSupportDetails details;
+    SwapchainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
+        SwapchainSupportDetails details;
         vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, m_surface, &details.capabilities);
         
         uint32_t format_count = 0u;
