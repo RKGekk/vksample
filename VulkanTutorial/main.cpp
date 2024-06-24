@@ -168,6 +168,7 @@ private:
     VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
     std::vector<VkImage> m_swapchain_images;
     std::vector<VkImageView> m_swapchain_views;
+    std::vector<VkFramebuffer> m_swapchain_framebuffers;
     SwapchainParams m_swapchain_params;
     SwapchainSupportDetails m_swapchain_support_details;
     VkPipelineLayout m_pipeline_layout = VK_NULL_HANDLE;
@@ -175,6 +176,8 @@ private:
     VkShaderModule m_vert_shader_modeule = VK_NULL_HANDLE;
     VkShaderModule m_frag_shader_modeule = VK_NULL_HANDLE;
     VkPipeline m_graphics_pipeline = VK_NULL_HANDLE;
+    VkCommandPool m_command_pool = VK_NULL_HANDLE;
+    VkCommandBuffer m_command_buffer = VK_NULL_HANDLE;
         
     void initMainWindow() {
         glfwInit();
@@ -404,6 +407,81 @@ private:
         return instance;
     }
     
+    void createFramebuffers() {
+        size_t swapchain_ct = m_swapchain_views.size();
+        m_swapchain_framebuffers.resize(swapchain_ct);
+        for(size_t i = 0u; i < swapchain_ct; ++i) {
+            VkImageView attachments[] = {
+                m_swapchain_views[i]
+            };
+            VkFramebufferCreateInfo framebuffer_info{};
+            framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebuffer_info.renderPass = m_render_pass;
+            framebuffer_info.attachmentCount = 1u;
+            framebuffer_info.pAttachments = attachments;
+            framebuffer_info.width = m_swapchain_params.extent.width;
+            framebuffer_info.height = m_swapchain_params.extent.height;
+            framebuffer_info.layers = 1u;
+            
+            VkResult result = vkCreateFramebuffer(
+                m_device,
+                &framebuffer_info,
+                nullptr,
+                &m_swapchain_framebuffers[i]
+            );
+            if(result != VK_SUCCESS) {
+                throw std::runtime_error("failed to create framebuffer!");
+            }
+        }
+    }
+    
+    void createCommandPool() {
+        QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
+        VkCommandPoolCreateInfo command_pool_info{};
+        command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        command_pool_info.queueFamilyIndex = queue_family_indices.graphics_family.value();
+        
+        VkResult result = vkCreateCommandPool(
+            m_device,
+            &command_pool_info,
+            nullptr,
+            &m_command_pool
+        );
+        if(result != VK_SUCCESS) {
+            throw std::runtime_error("failed to create command pool!");
+        }
+    }
+    
+    void createCommandBuffer() {
+        VkCommandBufferAllocateInfo command_alloc_info{};
+        command_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        command_alloc_info.commandPool = m_command_pool;
+        command_alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        command_alloc_info.commandBufferCount = 1u;
+        
+        VkResult result = vkAllocateCommandBuffers(
+            m_device,
+            &command_alloc_info,
+            &m_command_buffer
+        );
+        if(result != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate command buffers!");
+        }
+    }
+    
+    void recordCommandBuffer(VkCommandBuffer command_buffer, uint32_t image_index) {
+        VkCommandBufferBeginInfo begin_info{};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags = 0u;
+        begin_info.pInheritanceInfo = nullptr;
+        
+        VkResult result = vkBeginCommandBuffer(m_command_buffer, &begin_info);
+        if(result != VK_SUCCESS) {
+            throw std::runtime_error("failed to begin recording commandbuffer!");
+        }
+    }
+    
     void initVulkan() {
         m_vk_instance = createInstance();
         m_debug_messenger = setupDebugMessanger();
@@ -429,6 +507,9 @@ private:
         
         createSwapchain();
         createPipeline();
+        createFramebuffers();
+        createCommandPool();
+        createCommandBuffer();
     }
     
     VkShaderModule CreateShaderModule(const std::vector<char>& buffer) {
@@ -949,6 +1030,10 @@ private:
     }
 
     void cleanup() {
+        vkDestroyCommandPool(m_device, m_command_pool, nullptr);
+        for (auto framebuffer : m_swapchain_framebuffers) {
+            vkDestroyFramebuffer(m_device, framebuffer, nullptr);
+        }
         vkDestroyShaderModule(m_device, m_frag_shader_modeule, nullptr);
         vkDestroyShaderModule(m_device, m_vert_shader_modeule, nullptr);
         vkDestroyPipeline(m_device, m_graphics_pipeline, nullptr);
