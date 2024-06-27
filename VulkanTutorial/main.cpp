@@ -477,7 +477,6 @@ private:
         VkCommandBufferBeginInfo begin_info{};
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin_info.flags = 0u;
-        
         begin_info.pInheritanceInfo = nullptr;
         
         VkResult result = vkBeginCommandBuffer(m_command_buffer, &begin_info);
@@ -514,6 +513,7 @@ private:
         vkCmdSetScissor(m_command_buffer, 0u, 1u, &scissor);
         
         vkCmdDraw(m_command_buffer, 3u, 1u, 0u, 0u);
+        vkCmdEndRenderPass(m_command_buffer);
         
         result = vkEndCommandBuffer(m_command_buffer);
         if(result != VK_SUCCESS) {
@@ -647,10 +647,6 @@ private:
         vertex_shader_info.pName = "main";
         vertex_shader_info.pSpecializationInfo = nullptr;
         
-        
-        
-        //std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages = {vertex_shader_info, frag_shader_info};
-        //VkPipelineShaderStageCreateInfo shader_stages[] = {vertex_shader_info, frag_shader_info};
         VkPipelineShaderStageCreateInfo shader_stages[] = {frag_shader_info, vertex_shader_info};
         
         std::vector<VkDynamicState> dynamic_states = {
