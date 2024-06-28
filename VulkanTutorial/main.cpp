@@ -412,32 +412,34 @@ private:
         return instance;
     }
     
-    void createFramebuffers() {
-        size_t swapchain_ct = m_swapchain_views.size();
-        m_swapchain_framebuffers.resize(swapchain_ct);
-        for(size_t i = 0u; i < swapchain_ct; ++i) {
+    std::vector<VkFramebuffer> createFramebuffers(const std::vector<VkImageView>& views, VkExtent2D extent, VkRenderPass render_pass) {
+        size_t ct = views.size();
+        std::vector<VkFramebuffer> result_framebuffers(ct);
+        for(size_t i = 0u; i < ct; ++i) {
             VkImageView attachments[] = {
-                m_swapchain_views[i]
+                views[i]
             };
             VkFramebufferCreateInfo framebuffer_info{};
             framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-            framebuffer_info.renderPass = m_render_pass;
+            framebuffer_info.renderPass = render_pass;
             framebuffer_info.attachmentCount = 1u;
             framebuffer_info.pAttachments = attachments;
-            framebuffer_info.width = m_swapchain_params.extent.width;
-            framebuffer_info.height = m_swapchain_params.extent.height;
+            framebuffer_info.width = extent.width;
+            framebuffer_info.height = extent.height;
             framebuffer_info.layers = 1u;
             
             VkResult result = vkCreateFramebuffer(
                 m_device,
                 &framebuffer_info,
                 nullptr,
-                &m_swapchain_framebuffers[i]
+                &result_framebuffers[i]
             );
             if(result != VK_SUCCESS) {
                 throw std::runtime_error("failed to create framebuffer!");
             }
         }
+        
+        return result_framebuffers;
     }
     
     void createCommandPool() {
@@ -558,6 +560,35 @@ private:
         }
     }
     
+    void cleanupSwapchain() {
+        size_t sz = m_swapchain_framebuffers.size();
+        for(size_t i = 0u; i < sz; ++i) {
+            vkDestroyFramebuffer(m_device, m_swapchain_framebuffers[i], nullptr);
+            vkDestroyImageView(m_device, m_swapchain_views[i], nullptr);
+        }
+        vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+    }
+    
+    void recreateSwapchain() {
+        vkDeviceWaitIdle(m_device);
+        
+        cleanupSwapchain();
+        vkDestroyRenderPass(m_device, m_render_pass, nullptr);
+        
+        createSwapchain();      
+        m_swapchain_views = getImageViews(m_device, m_swapchain_images, m_swapchain_params.surface_format);
+        createFramebuffers(m_swapchain_views, m_swapchain_params.extent, m_render_pass);
+        
+        VkSubpassDependency pass_dependency{};
+        pass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+        pass_dependency.dstSubpass = 0;
+        pass_dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        pass_dependency.srcAccessMask = 0u;
+        pass_dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        pass_dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        m_render_pass = createRenderPass(pass_dependency);
+    }
+    
     void initVulkan() {
         m_vk_instance = createInstance();
         m_debug_messenger = setupDebugMessanger();
@@ -583,7 +614,7 @@ private:
         
         createSwapchain();
         createPipeline();
-        createFramebuffers();
+        m_swapchain_framebuffers = createFramebuffers(m_swapchain_views, m_swapchain_params.extent, m_render_pass);
         createCommandPool();
         createCommandBuffers();
         createSyncObjects();
@@ -659,7 +690,7 @@ private:
         
         VkPipelineShaderStageCreateInfo shader_stages[] = {frag_shader_info, vertex_shader_info};
         
-        std::vector<VkDynamicState> dynamic_states = {
+        std::array<VkDynamicState, 2> dynamic_states = {
             VK_DYNAMIC_STATE_VIEWPORT,
             VK_DYNAMIC_STATE_SCISSOR
         };
@@ -1164,24 +1195,19 @@ private:
     }
 
     void cleanup() {
+        cleanupSwapchain();
+        
+        vkDestroyPipeline(m_device, m_graphics_pipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_pipeline_layout, nullptr);
+        vkDestroyRenderPass(m_device, m_render_pass, nullptr);
         for(size_t i = 0u; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             vkDestroySemaphore(m_device, m_image_available[i], nullptr);
             vkDestroySemaphore(m_device, m_render_finished[i], nullptr);
             vkDestroyFence(m_device, m_in_flight_frame[i], nullptr);
         }
         vkDestroyCommandPool(m_device, m_command_pool, nullptr);
-        for (auto framebuffer : m_swapchain_framebuffers) {
-            vkDestroyFramebuffer(m_device, framebuffer, nullptr);
-        }
         vkDestroyShaderModule(m_device, m_frag_shader_modeule, nullptr);
         vkDestroyShaderModule(m_device, m_vert_shader_modeule, nullptr);
-        vkDestroyPipeline(m_device, m_graphics_pipeline, nullptr);
-        vkDestroyPipelineLayout(m_device, m_pipeline_layout, nullptr);
-        vkDestroyRenderPass(m_device, m_render_pass, nullptr);
-        for(uint32_t i = 0u; i < m_swapchain_views.size(); ++i) {
-            vkDestroyImageView(m_device, m_swapchain_views[i], nullptr);
-        }
-        vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
         vkDestroyDevice(m_device, nullptr);
         if (ENABLE_VALIDATION_LAYERS) {
             DestroyDebugUtilsMessengerEXT(m_vk_instance, m_debug_messenger, nullptr);
