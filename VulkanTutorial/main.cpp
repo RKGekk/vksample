@@ -183,12 +183,20 @@ private:
     std::vector<VkSemaphore> m_render_finished;
     std::vector<VkFence> m_in_flight_frame; // will be signaled when the command buffers finish
     uint32_t m_current_frame = 0u;
+    bool m_framebuffer_resized = false;
+    
+    static void framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
+        auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+        app->m_framebuffer_resized = true;
+    }
         
     void initMainWindow() {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        //glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
         m_window = glfwCreateWindow(WIDTH, HEIGHT, WINDOW_TITLE, nullptr, nullptr);
+        glfwSetWindowUserPointer(m_window, this);
+        glfwSetFramebufferSizeCallback(m_window, framebuffer_resize_callback);
     }
     
     uint32_t getVkApiVersion() {
@@ -560,35 +568,6 @@ private:
         }
     }
     
-    void cleanupSwapchain() {
-        size_t sz = m_swapchain_framebuffers.size();
-        for(size_t i = 0u; i < sz; ++i) {
-            vkDestroyFramebuffer(m_device, m_swapchain_framebuffers[i], nullptr);
-            vkDestroyImageView(m_device, m_swapchain_views[i], nullptr);
-        }
-        vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
-    }
-    
-    void recreateSwapchain() {
-        vkDeviceWaitIdle(m_device);
-        
-        cleanupSwapchain();
-        vkDestroyRenderPass(m_device, m_render_pass, nullptr);
-        
-        createSwapchain();      
-        m_swapchain_views = getImageViews(m_device, m_swapchain_images, m_swapchain_params.surface_format);
-        createFramebuffers(m_swapchain_views, m_swapchain_params.extent, m_render_pass);
-        
-        VkSubpassDependency pass_dependency{};
-        pass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-        pass_dependency.dstSubpass = 0;
-        pass_dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        pass_dependency.srcAccessMask = 0u;
-        pass_dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        pass_dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        m_render_pass = createRenderPass(pass_dependency);
-    }
-    
     void initVulkan() {
         m_vk_instance = createInstance();
         m_debug_messenger = setupDebugMessanger();
@@ -613,7 +592,9 @@ private:
         );
         
         createSwapchain();
-        createPipeline();
+        loadShaders();
+        createRenderPass();
+        createPipeline(m_vert_shader_modeule, m_frag_shader_modeule, m_render_pass);
         m_swapchain_framebuffers = createFramebuffers(m_swapchain_views, m_swapchain_params.extent, m_render_pass);
         createCommandPool();
         createCommandBuffers();
@@ -671,8 +652,23 @@ private:
         return render_pass;
     }
     
-    void createPipeline() {
-        m_frag_shader_modeule = CreateShaderModule("shaders/frag.spv");
+    void loadShaders() {
+        m_frag_shader_modeule = CreateShaderModule("shaders/frag.spv");    
+        m_vert_shader_modeule = CreateShaderModule("shaders/vert.spv");
+    }
+    
+    void createRenderPass() {
+        VkSubpassDependency pass_dependency{};
+        pass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+        pass_dependency.dstSubpass = 0;
+        pass_dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        pass_dependency.srcAccessMask = 0u;
+        pass_dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        pass_dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        m_render_pass = createRenderPass(pass_dependency);
+    }
+    
+    void createPipeline(VkShaderModule vert_shader_modeule, VkShaderModule frag_shader_modeule, VkRenderPass render_pass) {
         VkPipelineShaderStageCreateInfo frag_shader_info{};
         frag_shader_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         frag_shader_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -680,14 +676,12 @@ private:
         frag_shader_info.pName = "main";
         frag_shader_info.pSpecializationInfo = nullptr; 
     
-        m_vert_shader_modeule = CreateShaderModule("shaders/vert.spv");
         VkPipelineShaderStageCreateInfo vertex_shader_info{};
         vertex_shader_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         vertex_shader_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
         vertex_shader_info.module = m_vert_shader_modeule;
         vertex_shader_info.pName = "main";
         vertex_shader_info.pSpecializationInfo = nullptr;
-        
         VkPipelineShaderStageCreateInfo shader_stages[] = {frag_shader_info, vertex_shader_info};
         
         std::array<VkDynamicState, 2> dynamic_states = {
@@ -786,15 +780,6 @@ private:
             throw std::runtime_error("failed to create pipeline layout!");
         }
         
-        VkSubpassDependency pass_dependency{};
-        pass_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-        pass_dependency.dstSubpass = 0;
-        pass_dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        pass_dependency.srcAccessMask = 0u;
-        pass_dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        pass_dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        m_render_pass = createRenderPass(pass_dependency);
-        
         VkGraphicsPipelineCreateInfo pipeline_info{};
         pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         pipeline_info.stageCount = 2;
@@ -808,7 +793,7 @@ private:
         pipeline_info.pColorBlendState = &color_blend_info;
         pipeline_info.pDynamicState = &dynamic_state_info;
         pipeline_info.layout = m_pipeline_layout;
-        pipeline_info.renderPass = m_render_pass;
+        pipeline_info.renderPass = render_pass;
         pipeline_info.subpass = 0u;
         pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
         pipeline_info.basePipelineIndex = -1;
@@ -834,7 +819,6 @@ private:
     }
     
     VkShaderModule CreateShaderModule(const std::string& path) {
-        //std::string dd = std::filesystem::current_path().string();
         auto shader_buff = readFile(path);
         VkShaderModule shader_modeule = CreateShaderModule(shader_buff);
         return shader_modeule;
@@ -1143,11 +1127,61 @@ private:
         return device;
     }
     
-    void drawFrame() {
-        uint32_t image_index;
-        vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_image_available[m_current_frame], VK_NULL_HANDLE, &image_index);
+    void cleanupSwapchain() {
+        size_t sz = m_swapchain_framebuffers.size();
+        for(size_t i = 0u; i < sz; ++i) {
+            vkDestroyFramebuffer(m_device, m_swapchain_framebuffers[i], nullptr);
+        }
+        for(size_t i = 0u; i < sz; ++i) {
+            vkDestroyImageView(m_device, m_swapchain_views[i], nullptr);
+        }
+        vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+    }
     
+    void recreateSwapchain() {
+        int width = 0;
+        int height = 0;
+        glfwGetFramebufferSize(m_window, &width, &height);
+        while (width == 0 || height == 0) {
+            glfwGetFramebufferSize(m_window, &width, &height);
+            glfwWaitEvents();
+        }
+    
+        vkDeviceWaitIdle(m_device);
+        
+        cleanupSwapchain();
+        vkDestroyRenderPass(m_device, m_render_pass, nullptr);
+        vkDestroyPipeline(m_device, m_graphics_pipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_pipeline_layout, nullptr);
+        for(size_t i = 0u; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            vkDestroySemaphore(m_device, m_image_available[i], nullptr);
+            vkDestroySemaphore(m_device, m_render_finished[i], nullptr);
+            vkDestroyFence(m_device, m_in_flight_frame[i], nullptr);
+        }
+        
+        createSwapchain();      
+        m_swapchain_views = getImageViews(m_device, m_swapchain_images, m_swapchain_params.surface_format);
+        createRenderPass();
+        createPipeline(m_vert_shader_modeule, m_frag_shader_modeule, m_render_pass);
+        createFramebuffers(m_swapchain_views, m_swapchain_params.extent, m_render_pass);
+        createSyncObjects();
+    }
+    
+    void drawFrame() {
         vkWaitForFences(m_device, 1u, &m_in_flight_frame[m_current_frame], VK_TRUE, UINT64_MAX);
+        
+        uint32_t image_index;
+        VkResult result = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_image_available[m_current_frame], VK_NULL_HANDLE, &image_index);
+        
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            recreateSwapchain();
+            return;
+        }
+        else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+            throw std::runtime_error("failed to acquire swap chain image!");
+        }
+    
+        // Only reset the fence if we are submitting work
         vkResetFences(m_device, 1u, &m_in_flight_frame[m_current_frame]);
         
         vkResetCommandBuffer(m_command_buffers[m_current_frame], 0u);
@@ -1166,7 +1200,7 @@ private:
         submit_info.signalSemaphoreCount = 1u;
         submit_info.pSignalSemaphores = render_end_semaphores;
         
-        VkResult result = vkQueueSubmit(m_graphics_queue, 1u, &submit_info, m_in_flight_frame[m_current_frame]);
+        result = vkQueueSubmit(m_graphics_queue, 1u, &submit_info, m_in_flight_frame[m_current_frame]);
         if (result != VK_SUCCESS) {
             throw std::runtime_error("failed to submit draw command buffer!");
         }
@@ -1180,7 +1214,14 @@ private:
         present_info.pSwapchains = swapchains;
         present_info.pImageIndices = &image_index;
         present_info.pResults = nullptr;
-        vkQueuePresentKHR(m_present_queue, &present_info);
+        result = vkQueuePresentKHR(m_present_queue, &present_info);
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_framebuffer_resized) {
+            m_framebuffer_resized = false;
+            //recreateSwapchain();
+        }
+        else if (result != VK_SUCCESS) {
+            throw std::runtime_error("failed to present swap chain image!");
+        }
         
         m_current_frame = (m_current_frame + 1u) % MAX_FRAMES_IN_FLIGHT;
     }
@@ -1197,9 +1238,9 @@ private:
     void cleanup() {
         cleanupSwapchain();
         
+        vkDestroyRenderPass(m_device, m_render_pass, nullptr);
         vkDestroyPipeline(m_device, m_graphics_pipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipeline_layout, nullptr);
-        vkDestroyRenderPass(m_device, m_render_pass, nullptr);
         for(size_t i = 0u; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             vkDestroySemaphore(m_device, m_image_available[i], nullptr);
             vkDestroySemaphore(m_device, m_render_finished[i], nullptr);
