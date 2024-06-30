@@ -3,6 +3,7 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <glm/glm.hpp>
 #include <glm/vec4.hpp>
 #include <glm/mat4x4.hpp>
 
@@ -24,6 +25,40 @@ const char* WINDOW_TITLE = "Vulkan Test";
 const char* APP_NAME = "Hello Triangle";
 const char* ENGINE_NAME = "No Engine";
 const int MAX_FRAMES_IN_FLIGHT = 2;
+
+struct Vertex {
+    glm::vec2 pos;
+    glm::vec3 color;
+    
+    static VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription binding_desc{};
+        binding_desc.binding = 0u;
+        binding_desc.stride = sizeof(Vertex);
+        binding_desc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        
+        return binding_desc;
+    }
+    
+    static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescritpions() {
+        std::array<VkVertexInputAttributeDescription, 2> attribute_desc{};
+        attribute_desc[0].binding = 0;
+        attribute_desc[0].location = 0;
+        attribute_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attribute_desc[0].offset = offsetof(Vertex, pos);
+        
+        attribute_desc[1].binding = 0;
+        attribute_desc[1].location = 1;
+        attribute_desc[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attribute_desc[1].offset = offsetof(Vertex, color);
+        return attribute_desc;
+    }
+};
+
+const std::vector<Vertex> g_vertices = {
+    {{ 0.0f, -0.5f}, { 1.0f, 0.0f, 0.0f}},
+    {{ 0.5f,  0.5f}, { 0.0f, 1.0f, 0.0f}},
+    {{-0.5f,  0.5f}, { 0.0f, 0.0f, 1.0f}}
+};
 
 class InputFileStramGuard final {
 public:
@@ -110,9 +145,17 @@ void DestroyDebugUtilsMessengerEXT(
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphics_family;
     std::optional<uint32_t> present_family;
+    std::optional<uint32_t> transfer_family;
     
     bool isComplete() {
-        return graphics_family.has_value() && present_family.has_value();
+        return graphics_family.has_value() && present_family.has_value() && transfer_family.has_value();
+    }
+    
+    VkSharingMode getBufferSharingMode() {
+        if (graphics_family.has_value() && transfer_family.has_value() && graphics_family.value() != transfer_family.value()) {
+            return VK_SHARING_MODE_CONCURRENT;
+        }
+        return VK_SHARING_MODE_EXCLUSIVE;
     }
     
     std::unordered_set<uint32_t> getFamilies() {
@@ -122,6 +165,9 @@ struct QueueFamilyIndices {
         }
         if(present_family.has_value()) {
             family_indices.insert(present_family.value());
+        }
+        if(transfer_family.has_value()) {
+            family_indices.insert(transfer_family.value());
         }
         return family_indices;
     }
@@ -164,6 +210,7 @@ private:
     VkPhysicalDevice m_physical_device = VK_NULL_HANDLE;
     VkDevice m_device = VK_NULL_HANDLE;
     VkQueue m_graphics_queue = VK_NULL_HANDLE;
+    VkQueue m_transfer_queue = VK_NULL_HANDLE;
     VkQueue m_present_queue = VK_NULL_HANDLE;
     VkSurfaceKHR m_surface = VK_NULL_HANDLE;
     VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
@@ -177,13 +224,47 @@ private:
     VkShaderModule m_vert_shader_modeule = VK_NULL_HANDLE;
     VkShaderModule m_frag_shader_modeule = VK_NULL_HANDLE;
     VkPipeline m_graphics_pipeline = VK_NULL_HANDLE;
-    VkCommandPool m_command_pool = VK_NULL_HANDLE;
+    VkCommandPool m_grapics_cmd_pool = VK_NULL_HANDLE;
+    VkCommandPool m_transfer_cmd_pool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> m_command_buffers;
     std::vector<VkSemaphore> m_image_available; // signaled when the presentation engine is finished using the image.
     std::vector<VkSemaphore> m_render_finished;
     std::vector<VkFence> m_in_flight_frame; // will be signaled when the command buffers finish
     uint32_t m_current_frame = 0u;
     bool m_framebuffer_resized = false;
+    VkBuffer m_vertex_buffer = VK_NULL_HANDLE;
+    VkDeviceMemory m_vertex_memory = VK_NULL_HANDLE;
+    
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) {
+        QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
+        
+        VkBufferCreateInfo buffer_info{};
+        buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buffer_info.size = size;
+        buffer_info.usage = usage;
+        buffer_info.sharingMode = queue_family_indices.getBufferSharingMode();
+        
+        VkResult result = vkCreateBuffer(m_device, &buffer_info, nullptr, &buffer);
+        if (result != VK_SUCCESS) {
+            throw std::runtime_error("failed to create buffer!");
+        }
+        
+        VkMemoryRequirements mem_req;
+        vkGetBufferMemoryRequirements(m_device, buffer, &mem_req);
+        uint32_t mem_type_idx = findMemoryType(mem_req.memoryTypeBits, properties);
+        
+        VkMemoryAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc_info.allocationSize = mem_req.size;
+        alloc_info.memoryTypeIndex = mem_type_idx;
+        
+        result = vkAllocateMemory(m_device, &alloc_info, nullptr, &memory);
+        if(result != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate buffer memory!");
+        }
+        
+        vkBindBufferMemory(m_device, buffer, memory, 0u);
+    }
     
     static void framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
         auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
@@ -450,18 +531,33 @@ private:
         return result_framebuffers;
     }
     
-    void createCommandPool() {
+    void createCommandPools() {
         QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
-        VkCommandPoolCreateInfo command_pool_info{};
-        command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        command_pool_info.queueFamilyIndex = queue_family_indices.graphics_family.value();
+        VkCommandPoolCreateInfo gfx_cmd_pool_info{};
+        gfx_cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        gfx_cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        gfx_cmd_pool_info.queueFamilyIndex = queue_family_indices.graphics_family.value();
         
         VkResult result = vkCreateCommandPool(
             m_device,
-            &command_pool_info,
+            &gfx_cmd_pool_info,
             nullptr,
-            &m_command_pool
+            &m_grapics_cmd_pool
+        );
+        if(result != VK_SUCCESS) {
+            throw std::runtime_error("failed to create command pool!");
+        }
+        
+        VkCommandPoolCreateInfo transfer_cmd_pool_info{};
+        transfer_cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        transfer_cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        transfer_cmd_pool_info.queueFamilyIndex = queue_family_indices.transfer_family.value();
+        
+        result = vkCreateCommandPool(
+            m_device,
+            &transfer_cmd_pool_info,
+            nullptr,
+            &m_transfer_cmd_pool
         );
         if(result != VK_SUCCESS) {
             throw std::runtime_error("failed to create command pool!");
@@ -473,7 +569,7 @@ private:
     
         VkCommandBufferAllocateInfo command_alloc_info{};
         command_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        command_alloc_info.commandPool = m_command_pool;
+        command_alloc_info.commandPool = m_grapics_cmd_pool;
         command_alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         command_alloc_info.commandBufferCount = static_cast<uint32_t>(m_command_buffers.size());
         
@@ -512,6 +608,10 @@ private:
         vkCmdBeginRenderPass(command_buffer, &renderpass_info, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphics_pipeline);
         
+        VkBuffer vertex_buffers[] = {m_vertex_buffer};
+        VkDeviceSize offsets[] = {0};
+        vkCmdBindVertexBuffers(command_buffer, 0, 1, vertex_buffers, offsets);
+        
         VkViewport view_port{};
         view_port.x = 0.0f;
         view_port.y = 0.0f;
@@ -526,7 +626,7 @@ private:
         scissor.extent = m_swapchain_params.extent;
         vkCmdSetScissor(command_buffer, 0u, 1u, &scissor);
         
-        vkCmdDraw(command_buffer, 3u, 1u, 0u, 0u);
+        vkCmdDraw(command_buffer, static_cast<uint32_t>(g_vertices.size()), 1u, 0u, 0u);
         vkCmdEndRenderPass(command_buffer);
         
         result = vkEndCommandBuffer(command_buffer);
@@ -568,6 +668,58 @@ private:
         }
     }
     
+    VkBuffer createVertexBuffer(const std::vector<Vertex>& vertices) {
+        QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
+    
+        VkBufferCreateInfo buffer_info{};
+        buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buffer_info.size = sizeof(vertices[0]) * vertices.size();
+        buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        buffer_info.sharingMode = queue_family_indices.getBufferSharingMode();
+        buffer_info.flags = 0u;
+        VkBuffer vertex_buffer;
+        VkResult result = vkCreateBuffer(m_device, &buffer_info, nullptr, &vertex_buffer);
+        if(result != VK_SUCCESS) {
+            throw std::runtime_error("failed to create vertex buffer!");
+        }
+        
+        return vertex_buffer;
+    }
+    
+    uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties) {
+        VkPhysicalDeviceMemoryProperties mem_prop{};
+        vkGetPhysicalDeviceMemoryProperties(m_physical_device, &mem_prop);
+        for(uint32_t i = 0u; i < mem_prop.memoryTypeCount; ++i) {
+            bool is_type_suit = type_filter & (1 << i);
+            bool is_type_adequate = mem_prop.memoryTypes[i].propertyFlags & properties;
+            if(is_type_suit && is_type_adequate) {
+                return i;
+            }
+        }
+    
+        VkMemoryRequirements mem_requirements{};
+        vkGetBufferMemoryRequirements(m_device, m_vertex_buffer, &mem_requirements);
+        
+        throw std::runtime_error("failed to find suitable memory type!");
+    }
+    
+    VkDeviceMemory createMemory(VkBuffer buffer, VkMemoryPropertyFlags properties) {
+        VkMemoryRequirements mem_requirements{};
+        vkGetBufferMemoryRequirements(m_device, buffer, &mem_requirements);
+        uint32_t mem_type_idx = findMemoryType(mem_requirements.memoryTypeBits, properties);
+        
+        VkMemoryAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc_info.allocationSize = mem_requirements.size;
+        alloc_info.memoryTypeIndex = mem_type_idx;
+        VkDeviceMemory memory;
+        VkResult result = vkAllocateMemory(m_device, &alloc_info, nullptr, &memory);
+        if(result != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate buffer memory!");
+        }
+        return memory;
+    }
+    
     void initVulkan() {
         m_vk_instance = createInstance();
         m_debug_messenger = setupDebugMessanger();
@@ -591,12 +743,30 @@ private:
             &m_present_queue
         );
         
+        vkGetDeviceQueue(
+            m_device,
+            queue_family_indices.transfer_family.value(),
+            0,
+            &m_transfer_queue
+        );
+        
         createSwapchain();
         loadShaders();
         createRenderPass();
         createPipeline(m_vert_shader_modeule, m_frag_shader_modeule, m_render_pass);
         m_swapchain_framebuffers = createFramebuffers(m_swapchain_views, m_swapchain_params.extent, m_render_pass);
-        createCommandPool();
+        createCommandPools();
+        
+//        m_vertex_buffer = createVertexBuffer(g_vertices);
+//        m_vertex_memory = createMemory(m_vertex_buffer, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+//        vkBindBufferMemory(m_device, m_vertex_buffer, m_vertex_memory, 0u);
+        size_t buff_size = sizeof(g_vertices[0]) * g_vertices.size();
+        createBuffer(buff_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_vertex_buffer, m_vertex_memory);
+        void* data;
+        vkMapMemory(m_device, m_vertex_memory, 0, buff_size, 0u, &data);
+        memcpy(data, g_vertices.data(), buff_size);
+        vkUnmapMemory(m_device, m_vertex_memory);
+        
         createCommandBuffers();
         createSyncObjects();
     }
@@ -694,12 +864,15 @@ private:
         dynamic_state_info.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
         dynamic_state_info.pDynamicStates = dynamic_states.data();
         
+        auto binding_desc = Vertex::getBindingDescription();
+        auto attribute_desc = Vertex::getAttributeDescritpions();
+        
         VkPipelineVertexInputStateCreateInfo vertex_input_info{};
         vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertex_input_info.vertexBindingDescriptionCount = 0u;
-        vertex_input_info.pVertexBindingDescriptions = nullptr;
-        vertex_input_info.vertexAttributeDescriptionCount = 0u;
-        vertex_input_info.pVertexAttributeDescriptions = nullptr;
+        vertex_input_info.vertexBindingDescriptionCount = 1u;
+        vertex_input_info.pVertexBindingDescriptions = &binding_desc;
+        vertex_input_info.vertexAttributeDescriptionCount = static_cast<uint32_t>(attribute_desc.size());
+        vertex_input_info.pVertexAttributeDescriptions = attribute_desc.data();
         
         VkPipelineInputAssemblyStateCreateInfo input_assembly_info{};
         input_assembly_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -874,11 +1047,15 @@ private:
             if(queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 indices.graphics_family = i;
             }
+            if(queue_family.queueFlags & VK_QUEUE_TRANSFER_BIT) {
+                indices.transfer_family = i;
+            }
             VkBool32 present_support = false;
             vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
             if(present_support) {
                 indices.present_family = i;
             }
+            
             if (indices.isComplete()) {
                 break;
             }
@@ -1238,6 +1415,8 @@ private:
     void cleanup() {
         cleanupSwapchain();
         
+        vkDestroyBuffer(m_device, m_vertex_buffer, nullptr);
+        vkFreeMemory(m_device, m_vertex_memory, nullptr);
         vkDestroyRenderPass(m_device, m_render_pass, nullptr);
         vkDestroyPipeline(m_device, m_graphics_pipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_pipeline_layout, nullptr);
@@ -1246,7 +1425,13 @@ private:
             vkDestroySemaphore(m_device, m_render_finished[i], nullptr);
             vkDestroyFence(m_device, m_in_flight_frame[i], nullptr);
         }
-        vkDestroyCommandPool(m_device, m_command_pool, nullptr);
+        if(m_grapics_cmd_pool != m_transfer_cmd_pool) {
+            vkDestroyCommandPool(m_device, m_grapics_cmd_pool, nullptr);
+            vkDestroyCommandPool(m_device, m_transfer_cmd_pool, nullptr);
+        }
+        else {
+            vkDestroyCommandPool(m_device, m_grapics_cmd_pool, nullptr);
+        }
         vkDestroyShaderModule(m_device, m_frag_shader_modeule, nullptr);
         vkDestroyShaderModule(m_device, m_vert_shader_modeule, nullptr);
         vkDestroyDevice(m_device, nullptr);
