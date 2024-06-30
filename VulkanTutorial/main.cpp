@@ -266,6 +266,8 @@ private:
         vkBindBufferMemory(m_device, buffer, memory, 0u);
     }
     
+    
+    
     static void framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
         auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
         app->m_framebuffer_resized = true;
@@ -550,7 +552,7 @@ private:
         
         VkCommandPoolCreateInfo transfer_cmd_pool_info{};
         transfer_cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        transfer_cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        transfer_cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
         transfer_cmd_pool_info.queueFamilyIndex = queue_family_indices.transfer_family.value();
         
         result = vkCreateCommandPool(
@@ -668,6 +670,62 @@ private:
         }
     }
     
+    void copyBuffer(VkBuffer src_buffer, VkBuffer dst_buffer, VkDeviceSize size) {
+        QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
+        
+        VkCommandBufferAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandPool = m_transfer_cmd_pool;
+        alloc_info.commandBufferCount = 1u;
+        
+        VkCommandBuffer command_buffer;
+        vkAllocateCommandBuffers(m_device, &alloc_info, &command_buffer);
+        
+        VkCommandBufferBeginInfo begin_info{};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(command_buffer, &begin_info);
+        
+        VkBufferCopy copy_regions{};
+        copy_regions.srcOffset = 0u;
+        copy_regions.dstOffset = 0u;
+        copy_regions.size = size;
+        vkCmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_regions);
+        
+        vkEndCommandBuffer(command_buffer);
+        
+        VkSubmitInfo submit_info{};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1u;
+        submit_info.pCommandBuffers = &command_buffer;
+        vkQueueSubmit(m_transfer_queue, 1u, &submit_info, VK_NULL_HANDLE);
+        
+        vkQueueWaitIdle(m_transfer_queue);
+        
+        vkFreeCommandBuffers(m_device, m_transfer_cmd_pool, 1, &command_buffer);
+    }
+    
+    void createAndTransferVertexBuffer(const std::vector<Vertex>& vertices) {
+        QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
+        size_t buffer_size = sizeof(vertices[0]) * vertices.size();
+        
+        VkBuffer staging_buffer;
+        VkDeviceMemory staging_memory;
+        createBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging_buffer, staging_memory);
+        
+        void* data;
+        vkMapMemory(m_device, staging_memory, 0, buffer_size, 0u, &data);
+        memcpy(data, vertices.data(), buffer_size);
+        vkUnmapMemory(m_device, staging_memory);
+        
+        createBuffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_vertex_buffer, m_vertex_memory);
+        copyBuffer(staging_buffer, m_vertex_buffer, buffer_size);
+        
+        vkDestroyBuffer(m_device, staging_buffer, nullptr);
+        vkFreeMemory(m_device, staging_memory, nullptr);
+    }
+    
     VkBuffer createVertexBuffer(const std::vector<Vertex>& vertices) {
         QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
     
@@ -760,12 +818,15 @@ private:
 //        m_vertex_buffer = createVertexBuffer(g_vertices);
 //        m_vertex_memory = createMemory(m_vertex_buffer, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 //        vkBindBufferMemory(m_device, m_vertex_buffer, m_vertex_memory, 0u);
-        size_t buff_size = sizeof(g_vertices[0]) * g_vertices.size();
-        createBuffer(buff_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_vertex_buffer, m_vertex_memory);
-        void* data;
-        vkMapMemory(m_device, m_vertex_memory, 0, buff_size, 0u, &data);
-        memcpy(data, g_vertices.data(), buff_size);
-        vkUnmapMemory(m_device, m_vertex_memory);
+
+//        size_t buff_size = sizeof(g_vertices[0]) * g_vertices.size();
+//        createBuffer(buff_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_vertex_buffer, m_vertex_memory);
+//        void* data;
+//        vkMapMemory(m_device, m_vertex_memory, 0, buff_size, 0u, &data);
+//        memcpy(data, g_vertices.data(), buff_size);
+//        vkUnmapMemory(m_device, m_vertex_memory);
+
+        createAndTransferVertexBuffer(g_vertices);
         
         createCommandBuffers();
         createSyncObjects();
