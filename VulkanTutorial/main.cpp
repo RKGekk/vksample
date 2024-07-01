@@ -671,8 +671,6 @@ private:
     }
     
     void copyBuffer(VkBuffer src_buffer, VkBuffer dst_buffer, VkDeviceSize size) {
-        QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
-        
         VkCommandBufferAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -707,7 +705,6 @@ private:
     }
     
     void createAndTransferVertexBuffer(const std::vector<Vertex>& vertices) {
-        QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
         size_t buffer_size = sizeof(vertices[0]) * vertices.size();
         
         VkBuffer staging_buffer;
@@ -814,17 +811,6 @@ private:
         createPipeline(m_vert_shader_modeule, m_frag_shader_modeule, m_render_pass);
         m_swapchain_framebuffers = createFramebuffers(m_swapchain_views, m_swapchain_params.extent, m_render_pass);
         createCommandPools();
-        
-//        m_vertex_buffer = createVertexBuffer(g_vertices);
-//        m_vertex_memory = createMemory(m_vertex_buffer, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-//        vkBindBufferMemory(m_device, m_vertex_buffer, m_vertex_memory, 0u);
-
-//        size_t buff_size = sizeof(g_vertices[0]) * g_vertices.size();
-//        createBuffer(buff_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_vertex_buffer, m_vertex_memory);
-//        void* data;
-//        vkMapMemory(m_device, m_vertex_memory, 0, buff_size, 0u, &data);
-//        memcpy(data, g_vertices.data(), buff_size);
-//        vkUnmapMemory(m_device, m_vertex_memory);
 
         createAndTransferVertexBuffer(g_vertices);
         
