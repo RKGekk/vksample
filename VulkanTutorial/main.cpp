@@ -260,6 +260,8 @@ private:
     std::vector<VkBuffer> m_uniform_buffers;
     std::vector<VkDeviceMemory> m_uniform_memory;
     std::vector<void*> m_uniform_mapped;
+    VkImage m_texture_image = VK_NULL_HANDLE;
+    VkDeviceMemory m_texture_memory = VK_NULL_HANDLE;
     
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) {
         QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
@@ -757,19 +759,21 @@ private:
     }
     
     void copyBuffer(VkBuffer src_buffer, VkBuffer dst_buffer, VkDeviceSize size) {
-        VkCommandBufferAllocateInfo alloc_info{};
-        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc_info.commandPool = m_transfer_cmd_pool;
-        alloc_info.commandBufferCount = 1u;
-        
-        VkCommandBuffer command_buffer;
-        vkAllocateCommandBuffers(m_device, &alloc_info, &command_buffer);
-        
-        VkCommandBufferBeginInfo begin_info{};
-        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(command_buffer, &begin_info);
+//        VkCommandBufferAllocateInfo alloc_info{};
+//        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+//        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+//        alloc_info.commandPool = m_transfer_cmd_pool;
+//        alloc_info.commandBufferCount = 1u;
+//        
+//        VkCommandBuffer command_buffer;
+//        vkAllocateCommandBuffers(m_device, &alloc_info, &command_buffer);
+//        
+//        VkCommandBufferBeginInfo begin_info{};
+//        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+//        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+//        vkBeginCommandBuffer(command_buffer, &begin_info);
+
+        VkCommandBuffer command_buffer = beginSingleTimeCommands(m_transfer_cmd_pool);
         
         VkBufferCopy copy_regions{};
         copy_regions.srcOffset = 0u;
@@ -779,15 +783,15 @@ private:
         
         vkEndCommandBuffer(command_buffer);
         
-        VkSubmitInfo submit_info{};
-        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit_info.commandBufferCount = 1u;
-        submit_info.pCommandBuffers = &command_buffer;
-        vkQueueSubmit(m_transfer_queue, 1u, &submit_info, VK_NULL_HANDLE);
+        endSingleTimeCommands(command_buffer, m_transfer_queue, m_transfer_cmd_pool);
         
-        vkQueueWaitIdle(m_transfer_queue);
-        
-        vkFreeCommandBuffers(m_device, m_transfer_cmd_pool, 1, &command_buffer);
+//        VkSubmitInfo submit_info{};
+//        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+//        submit_info.commandBufferCount = 1u;
+//        submit_info.pCommandBuffers = &command_buffer;
+//        vkQueueSubmit(m_transfer_queue, 1u, &submit_info, VK_NULL_HANDLE);
+//        vkQueueWaitIdle(m_transfer_queue);
+//        vkFreeCommandBuffers(m_device, m_transfer_cmd_pool, 1, &command_buffer);
     }
     
     void createAndTransferIndexBuffer(const std::vector<uint16_t>& indices) {
@@ -828,6 +832,24 @@ private:
         vkFreeMemory(m_device, staging_memory, nullptr);
     }
     
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
+        VkCommandBuffer command_buffer = beginSingleTimeCommands(m_grapics_cmd_pool);
+        
+        VkBufferImageCopy region{};
+        region.bufferOffset = 0u;
+        region.bufferRowLength = 0u;
+        region.bufferImageHeight = 0u;
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0u;
+        region.imageSubresource.baseArrayLayer = 0u;
+        region.imageSubresource.layerCount = 1u;
+        region.imageOffset = {0, 0, 0};
+        region.imageExtent = {width, height, 1};
+        vkCmdCopyBufferToImage(command_buffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        
+        endSingleTimeCommands(command_buffer, m_graphics_queue, m_grapics_cmd_pool);
+    }
+    
     VkBuffer createVertexBuffer(const std::vector<Vertex>& vertices) {
         QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
     
@@ -856,10 +878,7 @@ private:
                 return i;
             }
         }
-    
-        VkMemoryRequirements mem_requirements{};
-        vkGetBufferMemoryRequirements(m_device, m_vertex_buffer, &mem_requirements);
-        
+                
         throw std::runtime_error("failed to find suitable memory type!");
     }
     
@@ -915,8 +934,146 @@ private:
         }
     }
     
-    void createImage() {
+    void createImage(const VkImageCreateInfo& image_info, VkImage& image, VkDeviceMemory memory) {
+        VkResult result = vkCreateImage(m_device, &image_info, nullptr, &image);
+        if(result != VK_SUCCESS) {
+            throw std::runtime_error("failed to create image!");
+        }
         
+        VkMemoryRequirements mem_req{};
+        vkGetImageMemoryRequirements(m_device, image, &mem_req);
+        
+        uint32_t mem_type_idx = findMemoryType(mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VkMemoryAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc_info.allocationSize = mem_req.size;
+        alloc_info.memoryTypeIndex = mem_type_idx;
+        
+        result = vkAllocateMemory(m_device, &alloc_info, nullptr, &memory);
+        if(result != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate image memory!");
+        }
+        vkBindImageMemory(m_device, m_texture_image, m_texture_memory, 0u);
+    }
+    
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout old_layout, VkImageLayout new_layout) {
+        VkCommandBuffer command_buffer = beginSingleTimeCommands(m_grapics_cmd_pool);
+        
+        VkPipelineStageFlags source_stage;
+        VkPipelineStageFlags destination_stage;
+        
+        VkImageMemoryBarrier barrier{};
+        if(old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+            barrier.srcAccessMask = 0u;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        }
+        if(old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            destination_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        }else {
+            throw std::invalid_argument("unsupported layout transition!");
+        }
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = old_layout;
+        barrier.newLayout = new_layout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0u;
+        barrier.subresourceRange.levelCount = 1u;
+        barrier.subresourceRange.baseArrayLayer = 0u;
+        barrier.subresourceRange.layerCount = 1u;
+        //barrier.srcAccessMask = 0u;
+        //barrier.dstAccessMask = 0u;
+        vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0u, 0u, nullptr, 0u, nullptr, 1u, &barrier);
+        
+        endSingleTimeCommands(command_buffer, m_graphics_queue, m_grapics_cmd_pool);
+    }
+    
+    VkCommandBuffer beginSingleTimeCommands(VkCommandPool command_pool) {
+        VkCommandBufferAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandPool = command_pool;
+        alloc_info.commandBufferCount = 1u;
+        
+        VkCommandBuffer command_buffer;
+        vkAllocateCommandBuffers(m_device, &alloc_info, &command_buffer);
+        
+        VkCommandBufferBeginInfo begin_info{};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(command_buffer, &begin_info);
+        
+        return command_buffer;
+    }
+    
+    void endSingleTimeCommands(VkCommandBuffer command_buffer, VkQueue queue, VkCommandPool command_pool) {
+        vkEndCommandBuffer(command_buffer);
+        
+        VkSubmitInfo submit_info{};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1u;
+        submit_info.pCommandBuffers = &command_buffer;
+        
+        vkQueueSubmit(queue, 1u, &submit_info, VK_NULL_HANDLE);
+        vkQueueWaitIdle(queue);
+        vkFreeCommandBuffers(m_device, command_pool, 1u, &command_buffer);
+    }
+    
+    void createImage() {
+        int tex_width;
+        int tex_height;
+        int tex_channels;
+        stbi_uc* pixels = stbi_load(
+            "textures/texture.jpg",
+            &tex_width,
+            &tex_height,
+            &tex_channels,
+            STBI_rgb_alpha
+        );
+        VkDeviceSize image_size = tex_width * tex_height * 4;
+        if (!pixels) {
+            throw std::runtime_error("failed to load texture image!");
+        }
+        
+        VkBuffer staging_buffer;
+        VkDeviceMemory staging_memory;
+        createBuffer(image_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging_buffer, staging_memory);
+        
+        void* data;
+        vkMapMemory(m_device, staging_memory, 0, image_size, 0, &data);
+        memcpy(data, pixels, static_cast<size_t>(image_size));
+        vkUnmapMemory(m_device, staging_memory);
+        
+        stbi_image_free(pixels);
+        
+        VkImageCreateInfo image_info{};
+        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        image_info.imageType = VK_IMAGE_TYPE_2D;
+        image_info.extent.width = static_cast<uint32_t>(tex_width);
+        image_info.extent.height = static_cast<uint32_t>(tex_height);
+        image_info.extent.depth = 1u;
+        image_info.mipLevels = 1u;
+        image_info.arrayLayers = 1u;
+        image_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+        image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        image_info.flags = 0u;
+        
+        createImage(image_info, m_texture_image, m_texture_memory);
+        
+        transitionImageLayout(m_texture_image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        copyBufferToImage(staging_buffer, m_texture_image, static_cast<uint32_t>(tex_width), static_cast<uint32_t>(tex_height));
+        transitionImageLayout(m_texture_image, VK_FORMAT_R8G8B8A8_SRGB,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     
     void initVulkan() {
