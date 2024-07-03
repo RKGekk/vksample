@@ -33,7 +33,7 @@ const char* ENGINE_NAME = "No Engine";
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
 struct Vertex {
-    glm::vec2 pos;
+    glm::vec3 pos;
     glm::vec3 color;
     glm::vec2 tex_coord;
     
@@ -50,7 +50,7 @@ struct Vertex {
         std::array<VkVertexInputAttributeDescription, 3> attribute_desc{};
         attribute_desc[0].binding = 0;
         attribute_desc[0].location = 0;
-        attribute_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attribute_desc[0].format = VK_FORMAT_R32G32B32_SFLOAT;
         attribute_desc[0].offset = offsetof(Vertex, pos);
         
         attribute_desc[1].binding = 0;
@@ -68,15 +68,22 @@ struct Vertex {
 };
 
 const std::vector<Vertex> g_vertices = {
-    {{-0.5f, -0.5f}, { 1.0f, 0.0f, 0.0f}, { 1.0f, 0.0f}},
-    {{ 0.5f, -0.5f}, { 0.0f, 1.0f, 0.0f}, { 0.0f, 0.0f}},
-    {{ 0.5f,  0.5f}, { 0.0f, 0.0f, 1.0f}, { 0.0f, 1.0f}},
-    {{-0.5f,  0.5f}, { 1.0f, 1.0f, 1.0f}, { 1.0f, 1.0f}}
+    {{-0.5f, -0.5f,  0.0f}, { 1.0f,  0.0f,  0.0f}, { 0.0f,  0.0f}},
+    {{ 0.5f, -0.5f,  0.0f}, { 0.0f,  1.0f,  0.0f}, { 1.0f,  0.0f}},
+    {{ 0.5f,  0.5f,  0.0f}, { 0.0f,  0.0f,  1.0f}, { 1.0f,  1.0f}},
+    {{-0.5f,  0.5f,  0.0f}, { 1.0f,  1.0f,  1.0f}, { 0.0f,  1.0f}},
+
+    {{-0.5f, -0.5f, -0.5f}, { 1.0f,  0.0f,  0.0f}, { 0.0f,  0.0f}},
+    {{ 0.5f, -0.5f, -0.5f}, { 0.0f,  1.0f,  0.0f}, { 1.0f,  0.0f}},
+    {{ 0.5f,  0.5f, -0.5f}, { 0.0f,  0.0f,  1.0f}, { 1.0f,  1.0f}},
+    {{-0.5f,  0.5f, -0.5f}, { 1.0f,  1.0f,  1.0f}, { 0.0f,  1.0f}}
 };
 
 const std::vector<uint16_t> g_indices = {
     0, 1, 2,
-    2, 3, 0
+    2, 3, 0,
+    4, 5, 6,
+    6, 7, 4
 };
 
 class InputFileStramGuard final {
