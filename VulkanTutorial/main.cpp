@@ -781,7 +781,7 @@ private:
         copy_regions.size = size;
         vkCmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_regions);
         
-        vkEndCommandBuffer(command_buffer);
+        //vkEndCommandBuffer(command_buffer);
         
         endSingleTimeCommands(command_buffer, m_transfer_queue, m_transfer_cmd_pool);
         
@@ -953,7 +953,7 @@ private:
         if(result != VK_SUCCESS) {
             throw std::runtime_error("failed to allocate image memory!");
         }
-        vkBindImageMemory(m_device, m_texture_image, m_texture_memory, 0u);
+        vkBindImageMemory(m_device, image, memory, 0u);
     }
     
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout old_layout, VkImageLayout new_layout) {
@@ -969,7 +969,7 @@ private:
             source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
             destination_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         }
-        if(old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        else if(old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
             barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
             source_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
@@ -1074,6 +1074,9 @@ private:
         transitionImageLayout(m_texture_image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         copyBufferToImage(staging_buffer, m_texture_image, static_cast<uint32_t>(tex_width), static_cast<uint32_t>(tex_height));
         transitionImageLayout(m_texture_image, VK_FORMAT_R8G8B8A8_SRGB,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        
+        vkDestroyBuffer(m_device, staging_buffer, nullptr);
+        vkFreeMemory(m_device, staging_memory, nullptr);
     }
     
     void initVulkan() {
@@ -1792,6 +1795,9 @@ private:
 
     void cleanup() {
         cleanupSwapchain();
+        
+        vkDestroyImage(m_device, m_texture_image, nullptr);
+        vkFreeMemory(m_device, m_texture_memory, nullptr);
         
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroyBuffer(m_device, m_uniform_buffers[i], nullptr);
