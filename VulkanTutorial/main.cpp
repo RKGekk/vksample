@@ -132,12 +132,15 @@ const bool ENABLE_VALIDATION_LAYERS = false;
 const bool ENABLE_VALIDATION_LAYERS = true;
 #endif
 
+class HelloTriangleApplication;
+
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
     VkDebugUtilsMessageTypeFlagsEXT messageType,
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData) {
     
+    const HelloTriangleApplication* app = (const HelloTriangleApplication*)pUserData;
     std::cout << "validation layer: " << pCallbackData->pMessage << std::endl;
     
     return VK_FALSE;
@@ -225,6 +228,7 @@ struct UniformBufferObject {
 
 class HelloTriangleApplication {
 public:
+    
     void run() {
         initMainWindow();
         initVulkan();
@@ -960,7 +964,7 @@ private:
         }
     }
     
-    void createImage(const VkImageCreateInfo& image_info, VkImage& image, VkDeviceMemory memory) {
+    void createImage(const VkImageCreateInfo& image_info, VkImage& image, VkDeviceMemory memory, VkMemoryPropertyFlags properties) {
         VkResult result = vkCreateImage(m_device, &image_info, nullptr, &image);
         if(result != VK_SUCCESS) {
             throw std::runtime_error("failed to create image!");
@@ -969,7 +973,7 @@ private:
         VkMemoryRequirements mem_req{};
         vkGetImageMemoryRequirements(m_device, image, &mem_req);
         
-        uint32_t mem_type_idx = findMemoryType(mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        uint32_t mem_type_idx = findMemoryType(mem_req.memoryTypeBits, properties);
         VkMemoryAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc_info.allocationSize = mem_req.size;
@@ -1026,7 +1030,7 @@ private:
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        //barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         barrier.subresourceRange.baseMipLevel = 0u;
         barrier.subresourceRange.levelCount = 1u;
         barrier.subresourceRange.baseArrayLayer = 0u;
@@ -1167,7 +1171,7 @@ private:
         image_info.flags = 0u;
         
         VkImage image;
-        createImage(image_info, image, m_texture_memory);
+        createImage(image_info, image, m_texture_memory, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         
         transitionImageLayout(image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         copyBufferToImage(staging_buffer, image, static_cast<uint32_t>(tex_width), static_cast<uint32_t>(tex_height));
@@ -1223,11 +1227,11 @@ private:
         image_info.format = depth_format;
         image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
         image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        image_info.usage = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
         image_info.flags = 0u;
-        createImage(image_info, m_depth_image, m_depth_memory);
+        createImage(image_info, m_depth_image, m_depth_memory, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         m_depth_view = createImageView(m_depth_image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT);
         transitionImageLayout(m_depth_image, depth_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     }
@@ -1853,6 +1857,10 @@ private:
     }
     
     void cleanupSwapchain() {
+        vkDestroyImageView(m_device, m_depth_view, nullptr);
+        vkDestroyImage(m_device, m_depth_image, nullptr);
+        vkFreeMemory(m_device, m_depth_memory, nullptr);
+    
         size_t sz = m_swapchain_framebuffers.size();
         for(size_t i = 0u; i < sz; ++i) {
             vkDestroyFramebuffer(m_device, m_swapchain_framebuffers[i], nullptr);
@@ -1885,6 +1893,7 @@ private:
         }
         
         createSwapchain();      
+        createDepthResources();
         m_swapchain_views = getImageViews(m_device, m_swapchain_images, m_swapchain_params.surface_format);
         createRenderPass();
         createPipeline(m_vert_shader_modeule, m_frag_shader_modeule, m_render_pass);
