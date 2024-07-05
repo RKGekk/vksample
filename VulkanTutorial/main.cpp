@@ -545,6 +545,7 @@ private:
         std::vector<VkFramebuffer> result_framebuffers(ct);
         for(size_t i = 0u; i < ct; ++i) {
             std::array<VkImageView, 3> attachments = {m_color_image_view, m_depth_view, views[i]};
+            //std::array<VkImageView, 3> attachments = {views[i], m_depth_view, m_color_image_view};
             VkFramebufferCreateInfo framebuffer_info{};
             framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             framebuffer_info.renderPass = render_pass;
@@ -1587,10 +1588,10 @@ private:
         multisample_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisample_info.sampleShadingEnable = VK_FALSE;
         multisample_info.rasterizationSamples = m_msaa_samples;
-        multisample_info.minSampleShading = 1.0f;
-        multisample_info.pSampleMask = nullptr;
-        multisample_info.alphaToCoverageEnable = VK_FALSE;
-        multisample_info.alphaToOneEnable = VK_FALSE;
+        //multisample_info.minSampleShading = 1.0f;
+        //multisample_info.pSampleMask = nullptr;
+        //multisample_info.alphaToCoverageEnable = VK_FALSE;
+        //multisample_info.alphaToOneEnable = VK_FALSE;
         
         VkPipelineColorBlendAttachmentState color_blend_state{};
         color_blend_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
