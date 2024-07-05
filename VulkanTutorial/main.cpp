@@ -544,7 +544,7 @@ private:
         size_t ct = views.size();
         std::vector<VkFramebuffer> result_framebuffers(ct);
         for(size_t i = 0u; i < ct; ++i) {
-            std::array<VkImageView, 3> attachments = {m_color_image_view, views[i], m_depth_view};
+            std::array<VkImageView, 3> attachments = {m_color_image_view, m_depth_view, views[i]};
             VkFramebufferCreateInfo framebuffer_info{};
             framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             framebuffer_info.renderPass = render_pass;
@@ -1145,7 +1145,7 @@ private:
             
             VkImageBlit blit{};
             blit.srcOffsets[0] = {0, 0, 0};
-            blit.srcOffsets[1] = {mip_width, mip_height, 0};
+            blit.srcOffsets[1] = {mip_width, mip_height, 1};
             blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             blit.srcSubresource.mipLevel = i - 1u;
             blit.srcSubresource.baseArrayLayer = 0u;
