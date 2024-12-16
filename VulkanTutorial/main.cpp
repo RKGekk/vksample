@@ -296,6 +296,7 @@ private:
     VkImage m_color_image;
     VkDeviceMemory m_color_image_memory;
     VkImageView m_color_image_view;
+    PFN_vkDebugMarkerSetObjectNameEXT m_pfnDebugMarkerSetObjectNameEXT;
     
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) {
         QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
@@ -362,6 +363,9 @@ private:
 		}
 #ifdef __APPLE__
         extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
+#ifndef NDEBUG
+        extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
 #endif
 		return extensions;
 	}
@@ -1269,6 +1273,18 @@ private:
         vkDestroyBuffer(m_device, staging_buffer, nullptr);
         vkFreeMemory(m_device, staging_memory, nullptr);
         
+#ifndef NDEBUG
+        const VkDebugMarkerObjectNameInfoEXT imageNameInfo = {
+            .sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT,
+            .pNext = NULL,
+            .objectType = VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT,
+            .object = (uint64_t)image,
+            .pObjectName = path_to_file.c_str()
+        };
+
+        m_pfnDebugMarkerSetObjectNameEXT(m_device, &imageNameInfo);
+#endif
+        
         return image;
     }
     
@@ -1359,6 +1375,10 @@ private:
         
         QueueFamilyIndices queue_family_indices = findQueueFamilies(m_physical_device, m_surface);
         m_device = createLogicalDevice(m_physical_device, queue_family_indices);
+        
+#ifndef NDEBUG
+        m_pfnDebugMarkerSetObjectNameEXT = (PFN_vkDebugMarkerSetObjectNameEXT)vkGetDeviceProcAddr(m_device, "vkDebugMarkerSetObjectNameEXT");
+#endif
         
         vkGetDeviceQueue(
             m_device,
