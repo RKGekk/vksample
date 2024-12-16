@@ -103,10 +103,11 @@ private:
 };
 
 static std::vector<char> readFile(const std::string& file_name) {
+    
     InputFileStramGuard stream_guard(std::ifstream(file_name, std::ios::ate | std::ios::binary));
     std::ifstream& file = stream_guard.Get(); 
     if(!file.is_open()) {
-        throw std::runtime_error("failed to open file!");
+        throw std::runtime_error("failed to open file: " + file_name + "\n");
     }
     
     size_t file_size = (size_t)file.tellg();
@@ -124,6 +125,10 @@ const std::vector<const char*> VALIDATION_LAYERS = {
 
 const std::vector<const char*> DEVICE_EXTENSIONS = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
+#ifndef NDEBUG
+    , VK_EXT_DEBUG_MARKER_EXTENSION_NAME
+    //, VK_EXT_DEBUG_UTILS_EXTENSION_NAME
+#endif
 };
 
 #ifdef NDEBUG
@@ -135,11 +140,12 @@ const bool ENABLE_VALIDATION_LAYERS = true;
 class HelloTriangleApplication;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-    VkDebugUtilsMessageTypeFlagsEXT messageType,
-    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-    void* pUserData) {
+                                                    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                                    VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                                    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+                                                    void* pUserData) {
     
+    [[maybe_unused]]
     const HelloTriangleApplication* app = (const HelloTriangleApplication*)pUserData;
     std::cout << "validation layer: " << pCallbackData->pMessage << std::endl;
     
@@ -499,7 +505,7 @@ private:
         
         m_available_instance_ext = getAvailableInstanceExtensions();
 #ifndef NDEBUG
-        printInfo("Supported extensions", m_available_instance_ext);
+        printInfo("Supported instance extensions", m_available_instance_ext);
 #endif
         std::vector<const char*> req_instance_extensions = getRequiredInstanceExtensions();
         bool is_all_ext_supported = checkNamesSupported(m_available_instance_ext, req_instance_extensions);
@@ -1903,6 +1909,9 @@ private:
             throw std::runtime_error("failed to find a suitable GPU!");
         }
         m_available_device_ext = getDeviceExtensionSupported(physical_device);
+#ifndef NDEBUG
+        printInfo("Supported device extensions", m_available_device_ext);
+#endif
         
         return physical_device;
     }
@@ -1960,6 +1969,12 @@ private:
         device_create_info.pEnabledFeatures = &device_features;
         
         std::vector<const char*> device_ext = getRequiredDeviceExtensions();
+        
+        bool is_all_ext_supported = checkNamesSupported(m_available_device_ext, device_ext);
+        if(!is_all_ext_supported) {
+            throw std::runtime_error("device not support some extensions!");
+        }
+        
         device_create_info.enabledExtensionCount = static_cast<uint32_t>(device_ext.size());
         device_create_info.ppEnabledExtensionNames = device_ext.data();
         
