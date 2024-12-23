@@ -468,6 +468,22 @@ private:
         
         return result;
     }
+
+    std::unordered_set<std::string> getNamesUnsupported(const std::unordered_set<std::string>& available_ext, const std::vector<const char*>& req_layer_names) {
+        std::unordered_set<std::string> result;
+        std::vector<std::string> from(available_ext.cbegin(), available_ext.cend());
+        std::sort(from.begin(), from.end());
+        std::vector<std::string> to(req_layer_names.cbegin(), req_layer_names.cend());
+        std::sort(to.begin(), to.end());
+        std::set_difference(
+            from.cbegin(),
+            from.cend(),
+            to.cbegin(),
+            to.cend(),
+            std::inserter(result, result.begin())
+        );
+        return result;
+    }
     
     std::vector<VkImage> getSwapchainImages(VkDevice device, VkSwapchainKHR swapchain) {
         uint32_t swapchain_image_count = 0u;
@@ -514,7 +530,10 @@ private:
         std::vector<const char*> req_instance_extensions = getRequiredInstanceExtensions();
         bool is_all_ext_supported = checkNamesSupported(m_available_instance_ext, req_instance_extensions);
         if(!is_all_ext_supported) {
-            throw std::runtime_error("instance not support some extensions!");
+            std::unordered_set<std::string> diff = getNamesUnsupported(m_available_instance_ext, req_instance_extensions);
+            for(const std::string& name : diff) {
+                throw std::runtime_error("instance not support extension - " + name);
+            }
         }
         instance_info.enabledExtensionCount = static_cast<uint32_t>(req_instance_extensions.size());
         instance_info.ppEnabledExtensionNames = req_instance_extensions.data();
@@ -525,7 +544,10 @@ private:
         std::vector<const char*> req_validation_layers = getRequiredValidationLayers();
         bool is_all_layers_supported = checkNamesSupported(m_validation_layers, req_validation_layers);
         if(!is_all_layers_supported) {
-            throw std::runtime_error("instance not support some layers!");
+            std::unordered_set<std::string> diff = getNamesUnsupported(m_validation_layers, req_validation_layers);
+            for(const std::string& name : diff) {
+                throw std::runtime_error("instance not support layer - " + name);
+            }
         }
         instance_info.enabledLayerCount = static_cast<uint32_t>(req_validation_layers.size());
         instance_info.ppEnabledLayerNames = req_validation_layers.data();
